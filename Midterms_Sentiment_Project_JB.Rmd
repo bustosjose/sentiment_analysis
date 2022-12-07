@@ -1,0 +1,355 @@
+---
+title: "Midterms Sentiment Analysis"
+author: "Jose Bustos"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    code_folding: "hide"
+---
+
+```{r setup, include=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r packages, message=FALSE, echo=TRUE, warning=FALSE}
+# Load
+#install.packages('tidytext')
+#install.packages('textdata')
+#install.packages('ggrepel')
+library(tidyverse)
+library(tidytext)
+library(textdata)
+library(stringr)
+library(tm)
+library(SnowballC)
+library(RColorBrewer)
+library(wordcloud)
+library(syuzhet)
+library(ggplot2)
+library(dplyr)
+library(ggrepel)
+library(reshape2)
+library(viridis)
+library(paletteer)
+```
+
+
+<h3><b>Introduction</b></h3>
+
+Given the recent uptick in political rhetoric, every election cycle has become more important than the previous.  No one in the U.S. can escape an election cycle as campaign advertising is seemingly everywhere on television and social media platforms such as Twitter.  In the past, many citizens only voted during presidential elections.  Voting trends have started to shift in recent years showing that more people are becoming actively involved in midterm elections.  Social media has drastically changed the way people consume news, much of which is political.  Given the rise in political activity seen through social media the hash tag midterms has started to trend on Twitter.  A sentiment analysis of tweets based on the word midterms could well inform how the people in the US are feeling towards upcoming midterm elections. 
+
+
+
+```{r, warning=FALSE}
+#load dataset
+midterms <- read.csv('https://raw.githubusercontent.com/bustosjose/sentiment_analysis/main/clean_mid_terms22.csv',stringsAsFactors = F,header=T)
+
+all_tweets <- paste(unlist(midterms$text), collapse =" ")
+#create a corpus file
+
+text.midterms2 <- Corpus(VectorSource(all_tweets))
+
+#transform text
+
+# Convert the text to lower case
+text.midterms2 <- tm_map(text.midterms2, content_transformer(tolower))
+# Remove numbers
+text.midterms2 <- tm_map(text.midterms2, removeNumbers)
+# Remove english common stopwords
+text.midterms2 <- tm_map(text.midterms2, removeWords, stopwords("english"))
+# Remove punctuations
+text.midterms2 <- tm_map(text.midterms2, removePunctuation)
+# Eliminate extra white spaces
+text.midterms2 <- tm_map(text.midterms2, stripWhitespace)
+# specify your custom stopwords as a character vector
+text.midterms2  <- tm_map(text.midterms2, removeWords, c("https", "vote", "elections", "twitter",
+                                                       "election", "amp", "can", "fuck", "just", "like",
+                                                       "now", "they", "them", "shit", "get", "let", 
+                                                       "don", "trump", "will")) 
+
+
+# Build a term-document matrix
+text.midterms2.dtm <- TermDocumentMatrix(text.midterms2)
+text.dtm.m <- as.matrix(text.midterms2.dtm)
+
+
+# Sort by decreasing value of frequency
+dtm.frequency <- sort(rowSums(text.dtm.m),decreasing=TRUE)
+dtm_data <- data.frame(word = names(dtm.frequency ),freq=dtm.frequency)
+text_td <- tidy(text.midterms2.dtm) 
+```
+
+<h4>Midterms Data Word Cloud</h4>
+A Word Cloud was used to analyze the frequency of each word from all tweets collected.   The midterms tweet data was collected through the use of the Twitter API utilizing the word midterms. Noticeably midterms is the top word used within the midterms data set.  Other highly used words are GOP, democrats, Biden and politics. 
+
+```{r, fig.align="center", warning=FALSE}
+#text_td word cloud
+tweet_cloud <- text_td[order(text_td$count, decreasing = TRUE, na.last=TRUE) , ]
+
+
+set.seed(123)
+wordcloud(words = tweet_cloud$term, freq =tweet_cloud$count, min.freq = 100,
+          max.words=1000, random.order=FALSE, rot.per=0.30, 
+          colors=brewer.pal(8, "Dark2"))
+```
+
+
+
+<h4>Midterms Data Top 10 Words</h4>
+A bar plot is employed to view the most frequent words in all of the tweet data collected.  Based on graph midterms is the top word used. Following is democrats, GOP and Biden.  
+
+```{r, fig.width=10.9, fig.height=7,fig.align="center", warning=FALSE}
+# Plot the most frequent words
+tweet_cloud[1:10,] %>% 
+  ggplot(aes( reorder(term, -count), count, fill = term)) +
+  geom_col(show.legend = FALSE) +
+  theme_bw() +
+  geom_text(aes(label=paste0(count,"\n")))+
+  labs(title = "Top 10 Words",
+          subtitle = "Top 10 Most Frequent Words Used",
+          x="\nWord\n",
+          y="\nFrequency\n",
+          caption="\nSource: twitter.com")+
+     theme(
+       plot.title=element_text(hjust=.5,size = 20),
+       plot.subtitle=element_text(hjust=.5,size = 10),
+       axis.text.y=element_text(size=10),
+       axis.title.x=element_text(size=13),
+       axis.title.y=element_text(size=13))
+  
+
+```
+
+<h2>Bing Lexicon</h2>
+<br> </br>
+
+<h4>Bing Lexicon Word Cloud</h4>
+The Bing sentiment lexicon categorizes words in a binary fashion, either positive or negative. Bellow is a Word Cloud that was created to show all of the words that appear in the tweets data set that matches with a word from the Bing lexicon. Win, right, good, recession are some of the most frequent words that appear most frequently. 
+
+```{r, fig.align="center", warning=FALSE}
+#generate word cloud
+mid_sentiment <- text_td %>% inner_join(get_sentiments('bing'), by = c(term= "word"))
+
+sentiment_count <- mid_sentiment %>% group_by(sentiment) %>%
+  summarize(freq = n())
+
+set.seed(123)
+wordcloud(words = mid_sentiment$term, freq = mid_sentiment$count, min.freq = 30,
+          max.words=700,random.order=FALSE, rot.per=0.30, 
+          colors=brewer.pal(8, "Dark2"))  
+```
+
+<h4>Bing Lexicon Comparison</h4>
+Given the binary categorization of words in the Bing sentiment lexicon, we can compare the number of positive and negative sentiment frequency found in the data. The negative sentiment is more frequent in the tweet data. Let us analyze this finding further.
+
+```{r, fig.width=10.9, fig.height=7,fig.align="center", warning=FALSE}
+#graph of positive tweets and negative tweets
+
+ggplot(sentiment_count,aes(x=reorder(sentiment,freq),y=freq,fill=sentiment))+
+  geom_bar(stat="identity")+
+  coord_flip()+
+  theme_bw()+
+  geom_text(aes(label=paste0('\n',freq))) +
+    labs(title = "Bing Lexicon Sentiment Comparison",
+          subtitle = "Comparing Tweet Sentiment Frequency \n Positive VS Negative",
+          x="\nSentiment\n",
+          y="\nFrequency\n",
+          caption="\nSource: twitter.com",
+         fill = "Sentiment")+
+     theme(
+       plot.title=element_text(hjust=.5,size = 20),
+       plot.subtitle=element_text(hjust=.5,size = 10),
+       axis.text.y=element_text(size=10),
+       axis.title.x=element_text(size=13),
+       axis.title.y=element_text(size=13)) +
+  scale_fill_manual(values = c("negative"= "#CB181D", "positive"="#2E830E"))
+
+```
+
+
+<h4>Bing Lexicon Top 10 Words</h4>
+A facet graph was used to compare the top 10 positive and negative words in the tweet data set.  Right, win and good are the top three words categorized as positive words.  Crime, recession, lose are the top three words categorized as negative.  Even though negative sentiment is more frequent, this graph shows that the top three positive words account for the majority of the words found in the Bing lexicon data set.
+
+
+```{r, fig.width=10.9, fig.height=7,fig.align="center", warning=FALSE}
+### face wrap with 10 ten words per sentiment
+bing_sent <- mid_sentiment 
+
+bing_sent <- bing_sent[order(bing_sent$count, decreasing = TRUE, na.last=TRUE) , ]
+bing_sent2 <- bing_sent %>% filter(sentiment == 'positive') %>% slice(1:10)
+bing_sent3 <-  bing_sent %>% filter(sentiment == 'negative') %>% slice(1:10)
+bing_sent <- rbind(bing_sent2, bing_sent3)
+
+bing_sent %>% 
+  ggplot(aes( reorder(term, count), count, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  theme_bw() +
+  facet_wrap(~sentiment, scales = 'free_y') +
+  geom_text(aes(label=paste0('\n',count))) +
+  coord_flip() +
+    labs(title = "Top 10 Words",
+          subtitle = "Top 10 Words Per Sentiment\n",
+          x="\nSentiment\n",
+          y="\nCount\n",
+          caption="\nSource: twitter.com")+
+     theme(
+       plot.title=element_text(hjust=.5,size = 20),
+       plot.subtitle=element_text(hjust=.5,size = 10),
+       axis.text.y=element_text(size=10),
+       axis.title.x=element_text(size=13),
+       axis.title.y=element_text(size=13)) +
+  scale_fill_manual(values = c("negative"= "#CB181D", "positive"="#2E830E"))
+```
+
+<h2>NRC Lexicon</h2>
+<br> </br>
+
+<h4>NRC Lexicon Word Cloud</h4>
+The NRC lexicon categorizes words with eight basic emotions (anger, fear, anticipation, trust, surprise, sadness, joy, and disgust) and two sentiments (negative and positive). Bellow is a Word Cloud that was created to show all of the words that appear in the tweets data set that matches with a word from the NRC lexicon. Democracy, politics, equality and inflation seem to be the most frequent words found both in the tweet data set and NRC lexicon.
+
+```{r, fig.align="center", warning=FALSE}
+#SENTIMENT 3
+
+# graph of each type of feeling
+mid_sentiment3 <- text_td %>% inner_join(get_sentiments('nrc'), by = c(term= "word"))
+
+sentiment_count3 <- mid_sentiment3 %>% select(term, count, sentiment) %>% group_by(sentiment) %>%
+  summarize(freq = n())
+
+
+#generate word cloud
+set.seed(123)
+wordcloud(words = mid_sentiment3$term, freq = mid_sentiment3$count, min.freq = 3,
+          max.words=1000, random.order=FALSE, rot.per=0.30, 
+          colors=brewer.pal(8, "Dark2"))
+
+
+```
+
+<h4>NRC Lexicon Comparison</h4>
+Given the categorization of words in the NRC lexicon, we can compare the frequency of each word emotion and sentiment found. The negative sentiment is more frequent in the tweet data, and the positive sentiment comes second. The words are also categorized more than once, let us analyze this finding further.
+
+
+```{r, fig.width=10.9, fig.height=7,fig.align="center", warning=FALSE}
+
+ggplot(sentiment_count3,aes(x=reorder(sentiment,freq),y=freq,fill=sentiment))+
+  geom_bar(stat="identity")+
+  coord_flip()+
+  theme_bw() +
+  geom_text(aes(label=paste0('\n',freq))) +
+    labs(title = "NRC Lexicon Sentiment Comparison",
+          subtitle = "Comparing the Frequency of each Sentiment & Emotion\n",
+          x="\nSentiment\n",
+          y="\nFrequency\n",
+          caption="\nSource: twitter.com",
+         fill = "Sentiment")+
+     theme(
+       plot.title=element_text(hjust=.5,size = 20),
+       plot.subtitle=element_text(hjust=.5,size = 10),
+       axis.text.y=element_text(size=10),
+       axis.title.x=element_text(size=13),
+       axis.title.y=element_text(size=13))
+
+
+
+```
+
+```{r, warning=FALSE}
+nrc_sent <- mid_sentiment3 
+
+nrc_sent <- nrc_sent[order(nrc_sent$count, decreasing = TRUE, na.last=TRUE) , ]
+nrc_sent2 <- nrc_sent  %>% filter(sentiment == 'anger') %>% slice(1:10)
+nrc_sent3 <- nrc_sent  %>% filter(sentiment == 'positive') %>% slice(1:10)
+nrc_sent4 <- nrc_sent %>% filter(sentiment == 'fear') %>% slice(1:10)
+nrc_sent5 <- nrc_sent %>% filter(sentiment == 'negative') %>% slice(1:10)
+nrc_sent6 <- nrc_sent %>% filter(sentiment == 'joy') %>% slice(1:10)
+nrc_sent7 <- nrc_sent %>% filter(sentiment == 'trust') %>% slice(1:10)
+nrc_sent8 <- nrc_sent %>% filter(sentiment == 'anticipation') %>% slice(1:10)
+nrc_sent9 <- nrc_sent %>% filter(sentiment == 'disgust') %>% slice(1:10)
+nrc_sent10 <- nrc_sent %>% filter(sentiment == 'sadness') %>% slice(1:10)
+nrc_sent11 <- nrc_sent %>% filter(sentiment == 'surprise') %>% slice(1:10)
+
+nrc_sent <- rbind(nrc_sent2, nrc_sent3)
+nrc_sent <- rbind(nrc_sent, nrc_sent4)
+nrc_sent <- rbind(nrc_sent, nrc_sent5)
+nrc_sent <- rbind(nrc_sent, nrc_sent6)
+nrc_sent <- rbind(nrc_sent, nrc_sent7)
+nrc_sent <- rbind(nrc_sent, nrc_sent8)
+nrc_sent <- rbind(nrc_sent, nrc_sent9)
+nrc_sent <- rbind(nrc_sent, nrc_sent10)
+nrc_sent <- rbind(nrc_sent, nrc_sent11)
+
+```
+
+<h4>Top 10 Words Per Sentiment & Emotion</h4>
+In this facet wrap graph, the top ten words were chosen per sentiment and emotion.  A word may all into more than one category. Now let  us see what the frequency of these words are per emotion and sentiment.
+
+
+```{r, fig.width=10, fig.height=7,fig.align="center", warning=FALSE}
+
+y=1
+
+nrc_sent %>% 
+  ggplot(aes(term, y, label = term, fill = sentiment)) +
+  geom_point(color = "transparent") +
+  geom_label_repel(force = 1, nudge_y = .5,
+                   direction = "y",
+                   box.padding = 0.05,
+                   segment.color = "transparent",
+                   size = 3) +
+  facet_grid(~sentiment) +
+  theme_bw()+
+  theme(axis.text.x = element_blank(), axis.text.y = element_blank(),
+        axis.title.x = element_text(size = 6), 
+        panel.grid = element_blank(), panel.background = element_blank(),
+        panel.border = element_rect('lightgray', fill = NA), 
+        strip.text.x = element_text(size = 9),
+        legend.position="none",
+        axis.ticks.x = element_blank(),
+        axis.ticks.y = element_blank()) +
+  xlab(NULL) + ylab(NULL)+
+  coord_flip()
+
+
+
+
+
+```
+<br></br>
+<br></br>
+
+<h4>Frequency of Top 10 Words</h4>
+As we observed all of the words that can be found in each sentiment and emotion. With this facet wrap graph we can now see the frequency of each word per their emotion/sentiment. As stated previously some words fall into a category more than once.
+
+
+```{r, fig.width=11.2, fig.height=7,fig.align="center", warning=FALSE}
+
+nrc_sent %>% 
+  ggplot(aes( reorder(term, count), count, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  geom_text(aes(label=paste0('\n',count)), size=2) +
+  theme_bw()+
+  facet_wrap(~sentiment, scales = 'free_y', ncol =5)+
+  coord_flip()+
+    labs(title = "NRC Lexicon Word Comparison",
+          subtitle = "Comparing Word Frequency per Sentiment & Emotion\n",
+          x="\nSentiment/Emotion\n",
+          y="\nFrequency\n",
+          caption="\nSource: twitter.com")+
+     theme(
+       plot.title=element_text(hjust=.5,size = 20),
+       plot.subtitle=element_text(hjust=.5,size = 10),
+       axis.text.y=element_text(size=10),
+       axis.title.x=element_text(size=13),
+       axis.title.y=element_text(size=13))
+```
+
+<h3><b>Conclusion</b></h3>
+Based on the sentiment analysis conducted on data collected from users of the social media application Twitter, users of the app feel very negatively toward upcoming midterm elections.  The frequency of the negative sentiment was dominant in both Bing and NRC lexicons.  Two of the words that stood out the most in the Bing lexicon were crime and recession, both having a negative sentiment.  The word politics in the NRC lexicon was found 1,556 times and has an association with the emotion anger.  Other emotions that stood out were fear and anticipation.  Fear was a top emotion found while anticipation ranked eight.   With the use of both Bing and NRC lexicons we can conclude that Twitter users do feel negativity towards midterm elections and the political landscape. While this analysis was performed from a small collection of tweets, one wonders if the sentiment behind these tweets transfers to other users. 
+
+
+
+
+
+
